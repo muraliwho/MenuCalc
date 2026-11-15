@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MenuCalc</title>
+<style>
+  :root {
+    --bg: rgba(246,246,248,0.92); --panel: rgba(0,0,0,0.035); --line: rgba(0,0,0,0.09);
+    --text: #1d1d1f; --muted: #6e6e73; --faint: #a1a1a6;
+    --key: rgba(0,0,0,0.075); --key-fn: rgba(0,0,0,0.04); --key-util: rgba(0,0,0,0.15);
+    --op: #ff9f0a; --accent: #0a84ff; --good: #30a46c; --bad: #e5484d;
+    --shadow: 0 18px 50px rgba(0,0,0,0.28), 0 0 0 0.5px rgba(0,0,0,0.25);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: rgba(40,40,44,0.92); --panel: rgba(255,255,255,0.05); --line: rgba(255,255,255,0.1);
+      --text: #f5f5f7; --muted: #a1a1a6; --faint: #6e6e73;
+      --key: rgba(255,255,255,0.12); --key-fn: rgba(255,255,255,0.06); --key-util: rgba(255,255,255,0.24);
+      --shadow: 0 18px 50px rgba(0,0,0,0.55), 0 0 0 0.5px rgba(255,255,255,0.15);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    color: var(--text);
+    background: radial-gradient(1200px 700px at 20% 110%, #f2a65a 0%, transparent 60%),
+                radial-gradient(900px 600px at 90% 0%, #6a5acd 0%, transparent 55%),
+                linear-gradient(160deg, #1e3a5f 0%, #3b2c5e 50%, #7a3b52 100%);
+    min-height: 100vh; overflow: auto;
+  }
+  button { font: inherit; color: inherit; }
+
+  /* ---------- Fake menu bar ---------- */
+  .menubar {
+    position: sticky; top: 0; z-index: 10; height: 26px; display: flex; align-items: center;
+    padding: 0 10px; gap: 16px; color: #fff; font-size: 13px;
+    background: rgba(20,20,30,0.35); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  }
+  .menubar .app { font-weight: 700; }
+  .menubar .spacer { flex: 1; }
+  .menubar .tray { display: flex; align-items: center; gap: 14px; }
+  .menubar .tray span { opacity: .85; }
+  .status-btn {
+    height: 22px; min-width: 28px; padding: 0 6px; border: 0; border-radius: 5px; background: transparent;
+    color: #fff; font-size: 15px; font-weight: 600; cursor: default; display: grid; place-items: center;
+  }
+  .status-btn.active, .status-btn:hover { background: rgba(255,255,255,0.22); }
+  .status-btn.quit { opacity: .35; }
+
+  .hint {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+    color: rgba(255,255,255,0.85); font-size: 12px; background: rgba(0,0,0,0.25);
+    padding: 6px 12px; border-radius: 20px; backdrop-filter: blur(10px); white-space: nowrap;
+  }
+  .hint kbd { font: 600 11px ui-monospace, monospace; background: rgba(255,255,255,0.2); padding: 1px 5px; border-radius: 4px; }
+
+  /* ---------- Popover ---------- */
+  .popover {
+    position: absolute; top: 34px; z-index: 20; background: var(--bg);
+    backdrop-filter: blur(30px) saturate(1.6); -webkit-backdrop-filter: blur(30px) saturate(1.6);
+    border-radius: 12px; box-shadow: var(--shadow); transform-origin: top right;
+    transition: opacity .14s ease, transform .14s ease;
+  }
+  .popover.hidden { opacity: 0; transform: scale(.96) translateY(-6px); pointer-events: none; }
+  .popover::before {
+    content: ""; position: absolute; top: -7px; right: var(--arrow-right, 20px); width: 14px; height: 14px;
+    background: var(--bg); transform: rotate(45deg); border-radius: 3px 0 0 0;
+    box-shadow: -0.5px -0.5px 0 rgba(0,0,0,0.12);
+  }
+  .header { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); position: relative; }
+  .seg { display: inline-flex; background: var(--key-fn); border-radius: 7px; padding: 2px; gap: 2px; }
+  .seg button { border: 0; background: transparent; padding: 3px 11px; border-radius: 5px; font-size: 12px; font-weight: 500; }
+  .seg button.on { background: var(--bg); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+  .icon-btn { border: 0; background: transparent; width: 26px; height: 24px; border-radius: 6px; display: grid; place-items: center; color: var(--muted); }
+  .icon-btn:hover { background: var(--key-fn); color: var(--text); }
+  .icon-btn.on { color: var(--accent); }
+  .icon-btn svg { width: 16px; height: 16px; }
+  .grow { flex: 1; }
+
+  .body { display: flex; }
+  .main { overflow: hidden; }
+
+  /* ---------- Menus ---------- */
+  .menu {
+    position: absolute; z-index: 40; min-width: 220px; padding: 5px; border-radius: 9px;
+    background: var(--bg); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+    box-shadow: var(--shadow); display: none;
+  }
+  .menu.open { display: block; }
+  .menu button { display: flex; width: 100%; align-items: center; gap: 8px; border: 0; background: transparent; padding: 4px 8px; border-radius: 5px; text-align: left; font-size: 13px; }
+  .menu button:hover:not(:disabled) { background: var(--accent); color: #fff; }
+  .menu button:disabled { opacity: .4; }
+  .menu button .check { width: 14px; text-align: center; }
+  .menu button .key { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .menu button:hover .key { color: rgba(255,255,255,.8); }
+  .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 6px; }
+
+  /* ---------- Calculator ---------- */
+  .calc { padding: 12px; display: flex; flex-direction: column; gap: 10px; height: 100%; }
+  .display { background: var(--panel); border-radius: 12px; padding: 10px 12px 8px; text-align: right; }
+  .display .top { display: flex; align-items: center; gap: 8px; color: var(--muted); min-height: 22px; }
+  .badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
+  .secondary { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; direction: rtl; text-overflow: ellipsis; min-height: 19px; }
+  .secondary span { direction: ltr; unicode-bidi: bidi-override; }
+  .secondary.error { color: var(--bad); }
+  .mainline { font-size: 42px; font-weight: 300; white-space: nowrap; overflow: hidden; direction: rtl; letter-spacing: -0.5px; user-select: text; }
+  .mainline span { direction: ltr; unicode-bidi: bidi-override; }
+
+  .keys { display: grid; gap: 6px; flex: 1; }
+  .keys button {
+    border: 0; border-radius: 10px; background: var(--key); font-size: 21px; font-weight: 500;
+    transition: transform .06s ease, filter .06s ease; min-height: 0;
+  }
+  .keys button:active, .keys button.flash { transform: scale(.96); filter: brightness(.85); }
+  .keys .fn { background: var(--key-fn); font-size: 15px; }
+  .keys .util { background: var(--key-util); }
+  .keys .op { background: var(--op); color: #fff; }
+  .keys .on { background: var(--accent); color: #fff; }
+  .keys .wide { grid-column: span 2; }
+
+  /* ---------- History ---------- */
+  .history { width: 240px; border-left: 1px solid var(--line); display: flex; flex-direction: column; background: var(--panel); border-radius: 0 0 12px 0; }
+  .history .hh { display: flex; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  .history .hh h3 { margin: 0; font-size: 13px; font-weight: 700; flex: 1; }
+  .history .list { overflow-y: auto; flex: 1; }
+  .entry { padding: 8px 12px; text-align: right; border-bottom: 1px solid var(--line); cursor: default; }
+  .entry:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .entry .ex { font-size: 12px; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+  .entry .res { font-size: 17px; font-weight: 600; }
+  .entry .meta { font-size: 10.5px; color: var(--faint); }
+  .empty { margin: auto; color: var(--muted); text-align: center; padding: 30px 10px; }
+
+  /* ---------- Retirement ---------- */
+  .ret { height: 100%; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .group { background: var(--panel); border-radius: 10px; padding: 4px 12px; }
+  .group h4 { margin: 4px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 8px; min-height: 32px; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row label, .row .lbl { flex: 1; }
+  .row input, .row select {
+    font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 3px 7px; text-align: right; width: 120px;
+  }
+  .row select { text-align: left; width: 200px; }
+  .row input.short { width: 64px; }
+  .row input[type=checkbox] { width: auto; margin: 0; }
+  .seg.phase { align-self: flex-start; }
+  .seg.phase button { padding: 4px 14px; }
+  .row .unit { color: var(--muted); width: 12px; }
+  .row .val { font-variant-numeric: tabular-nums; text-align: right; }
+  .note { font-size: 11px; color: var(--muted); padding: 2px 2px 6px; }
+  .big { font-size: 30px; font-weight: 650; letter-spacing: -0.5px; }
+  .chart svg { width: 100%; height: auto; display: block; }
+  .btn { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 4px 10px; }
+  .btn:hover { border-color: var(--accent); }
+  .err { color: var(--bad); padding: 8px 0; }
+  .switch { display: flex; align-items: center; gap: 6px; }
+  .toast { position: fixed; top: 40px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.75); color: #fff; padding: 6px 14px; border-radius: 20px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="menubar">
+  <span class="app">MenuCalc</span><span>File</span><span>Edit</span><span>View</span>
+  <div class="spacer"></div>
+  <div class="tray">
+    <button class="status-btn" id="statusBtn" title="MenuCalc — click to open, right-click for menu">±</button>
+    <span id="wifi">⌁</span>
+    <span id="clock"></span>
+  </div>
+</div>
+
+<div class="popover" id="popover">
+  <div class="header">
+    <div class="seg" id="modeSeg">
+      <button data-mode="basic">Basic</button>
+      <button data-mode="scientific">Scientific</button>
+      <button data-mode="retirement">Retirement</button>
+    </div>
+    <div class="grow"></div>
+    <button class="icon-btn" id="histBtn" title="Show/hide history (⌘H)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><line x1="10" y1="2.5" x2="10" y2="13.5"/></svg>
+    </button>
+    <button class="icon-btn" id="menuBtn" title="Menu">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="3" y1="4.5" x2="13" y2="4.5"/><line x1="3" y1="8" x2="13" y2="8"/><line x1="3" y1="11.5" x2="13" y2="11.5"/></svg>
+    </button>
+    <button class="icon-btn" id="quitBtn" title="Quit MenuCalc (⌘Q)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 3.8a5.5 5.5 0 1 0 6 0"/><line x1="8" y1="1.8" x2="8" y2="7.5"/></svg>
+    </button>
+  </div>
+  <div class="body">
+    <div class="main" id="main"></div>
+    <div class="history" id="history">
+      <div class="hh"><h3>History</h3>
+        <button class="icon-btn" id="clearHist" title="Clear history (⇧⌘K)">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 9h6.6l.7-9"/></svg>
+        </button>
+      </div>
+      <div class="list" id="histList"></div>
+    </div>
+  </div>
+</div>
+
+<div class="menu" id="menu"></div>
+<div class="toast" id="toast"></div>
+<div class="hint" id="hint">Click <b>±</b> in the menu bar to open · <kbd>Esc</kbd> hides · right-click the icon for the menu</div>
+
+<script>
+(() => {
+"use strict";
+
+/* =========================================================
+   Storage (safe)
+   ========================================================= */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+
+/* =========================================================
+   Expression engine (same grammar as the Swift version)
+   ========================================================= */
+class CalcError extends Error {}
+const IDENTS = ["asinh","acosh","atanh","asin","acos","atan","sinh","cosh","tanh","sqrt","cbrt","log2",
+  "sin","cos","tan","log","abs","exp","Ans","ans","ln","pi","π","√","∛","e"];
+const isDigit = c => c >= "0" && c <= "9";
+
+function tokenize(s) {
+  const t = []; let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === " " || c === ",") { i++; continue; }
+    if (isDigit(c) || c === ".") {
+      let j = i, txt = "";
+      while (j < s.length && (isDigit(s[j]) || s[j] === ".")) txt += s[j++];
+      if (s[j] === "E") {
+        let k = j + 1, ex = "e";
+        if ("+-−".includes(s[k] || "x")) { ex += s[k] === "+" ? "+" : "-"; k++; }
+        let d = ""; while (k < s.length && isDigit(s[k])) d += s[k++];
+        if (d) { txt += ex + d; j = k; }
+      }
+      if (!/^(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/.test(txt)) throw new CalcError("Syntax error");
+      t.push({ t: "num", v: parseFloat(txt) }); i = j; continue;
+    }
+    const map = { "+": "+", "-": "-", "−": "-", "–": "-", "*": "*", "×": "*", "x": "*", "·": "*", "/": "/", "÷": "/", "^": "^" };
+    if (map[c]) { t.push({ t: "op", v: map[c] }); i++; continue; }
+    if (c === "(" || c === "[") { t.push({ t: "(" }); i++; continue; }
+    if (c === ")" || c === "]") { t.push({ t: ")" }); i++; continue; }
+    if (c === "!" || c === "%") { t.push({ t: "post", v: c }); i++; continue; }
+    const name = IDENTS.find(n => s.startsWith(n, i));
+    if (!name) throw new CalcError("Unknown: " + c);
+    t.push({ t: "id", v: name }); i += name.length;
+  }
+  return t;
+}
+
+function evaluate(input, angle, ans) {
+  const tk = tokenize(input);
+  if (!tk.length) throw new CalcError("Syntax error");
+  let pos = 0;
+  const peek = () => tk[pos], next = () => tk[pos++];
+  const rad = x => angle === "DEG" ? x * Math.PI / 180 : x;
+  const deg = x => angle === "DEG" ? x * 180 / Math.PI : x;
+  const clean = x => Math.abs(x) < 1e-12 ? 0 : x;
+  const domain = () => { throw new CalcError("Math domain error"); };
+
+  function fact(x) {
+    if (x < 0 && Number.isInteger(x)) domain();
+    if (x > 170) throw new CalcError("Result too large");
+    if (Number.isInteger(x)) { let r = 1; for (let n = 2; n <= x; n++) r *= n; return r; }
+    return gamma(x + 1);
+  }
+  function gamma(z) { // Lanczos
+    if (z < 0.5) return Math.PI / (Math.sin(Math.PI * z) * gamma(1 - z));
+    z -= 1; const g = 7, p = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+      -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+    let x = p[0]; for (let i = 1; i < g + 2; i++) x += p[i] / (z + i);
+    const t = z + g + 0.5; return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
+  }
+  function apply(n, x) {
+    switch (n) {
+      case "sin": return clean(Math.sin(rad(x)));
+      case "cos": return clean(Math.cos(rad(x)));
+      case "tan": if (angle === "DEG" && (x - 90) % 180 === 0) domain(); return clean(Math.tan(rad(x)));
+      case "asin": if (x < -1 || x > 1) domain(); return deg(Math.asin(x));
+      case "acos": if (x < -1 || x > 1) domain(); return deg(Math.acos(x));
+      case "atan": return deg(Math.atan(x));
+      case "sinh": return Math.sinh(x); case "cosh": return Math.cosh(x); case "tanh": return Math.tanh(x);
+      case "asinh": return Math.asinh(x);
+      case "acosh": if (x < 1) domain(); return Math.acosh(x);
+      case "atanh": if (x <= -1 || x >= 1) domain(); return Math.atanh(x);
+      case "ln": if (x <= 0) domain(); return Math.log(x);
+      case "log": if (x <= 0) domain(); return Math.log10(x);
+      case "log2": if (x <= 0) domain(); return Math.log2(x);
+      case "√": case "sqrt": if (x < 0) domain(); return Math.sqrt(x);
+      case "∛": case "cbrt": return Math.cbrt(x);
+      case "abs": return Math.abs(x);
+      case "exp": return Math.exp(x);
+    }
+    throw new CalcError("Unknown: " + n);
+  }
+  const constant = n => ({ "π": Math.PI, "pi": Math.PI, "e": Math.E, "Ans": ans, "ans": ans })[n];
+
+  function expression() {
+    let v = term();
+    while (peek() && peek().t === "op" && (peek().v === "+" || peek().v === "-")) {
+      const o = next().v; let r = term();
+      const prev = tk[pos - 1];
+      if (prev && prev.t === "post" && prev.v === "%") r *= v;   // 200 + 10% = 220
+      v = o === "+" ? v + r : v - r;
+    }
+    return v;
+  }
+  function term() {
+    let v = unary();
+    for (;;) {
+      const t = peek(); if (!t) break;
+      if (t.t === "op" && (t.v === "*" || t.v === "/")) {
+        next(); const r = unary();
+        if (t.v === "*") v *= r; else { if (r === 0) throw new CalcError("Cannot divide by zero"); v /= r; }
+      } else if (t.t === "num" || t.t === "(" || t.t === "id") {
+        v *= power();                                              // implicit multiplication
+      } else break;
+    }
+    return v;
+  }
+  function unary() {
+    const t = peek();
+    if (t && t.t === "op" && (t.v === "-" || t.v === "+")) { next(); const v = unary(); return t.v === "-" ? -v : v; }
+    return power();
+  }
+  function power() {
+    const b = postfix();
+    if (peek() && peek().t === "op" && peek().v === "^") { next(); return Math.pow(b, unary()); }
+    return b;
+  }
+  function postfix() {
+    let v = primary();
+    while (peek() && peek().t === "post") v = next().v === "!" ? fact(v) : v / 100;
+    return v;
+  }
+  function primary() {
+    const t = next();
+    if (!t) throw new CalcError("Syntax error");
+    if (t.t === "num") return t.v;
+    if (t.t === "(") { const v = expression(); if (!next() || tk[pos - 1].t !== ")") throw new CalcError("Mismatched parentheses"); return v; }
+    if (t.t === "id") {
+      const c = constant(t.v); if (c !== undefined) return c;
+      let a;
+      if (peek() && peek().t === "(") { next(); a = expression(); if (!next() || tk[pos - 1].t !== ")") throw new CalcError("Mismatched parentheses"); }
+      else a = power();
+      return apply(t.v, a);
+    }
+    throw new CalcError("Syntax error");
+  }
+
+  const v = expression();
+  if (pos < tk.length) throw new CalcError(tk[pos].t === ")" ? "Mismatched parentheses" : "Syntax error");
+  if (Number.isNaN(v)) throw new CalcError("Math domain error");
+  if (!Number.isFinite(v)) throw new CalcError("Result too large");
+  return v;
+}
+
+const fmt = {
+  raw(v) {
+    if (!Number.isFinite(v)) return "Error";
+    if (v === 0) return "0";
+    let s = String(Number(v.toPrecision(15)));
+    if (/e/.test(s) || Math.abs(v) >= 1e15) {
+      const [m, e] = Number(v.toPrecision(15)).toExponential().split("e");
+      s = `${String(Number(m))}E${parseInt(e, 10)}`;
+    }
+    return s;
+  },
+  entry(v) { return fmt.raw(v).replace(/-/g, "−"); },
+  display(v) {
+    const r = fmt.raw(v);
+    if (r.includes("E") || r === "Error") return r.replace(/-/g, "−");
+    let sign = "", body = r;
+    if (body.startsWith("-")) { sign = "−"; body = body.slice(1); }
+    const [i, f] = body.split(".");
+    return sign + i.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (f !== undefined ? "." + f : "");
+  }
+};
+
+/* =========================================================
+   History
+   ========================================================= */
+const history = {
+  items: store.get("mc.history", []),
+  add(e) { this.items.unshift({ id: Date.now() + Math.random(), date: Date.now(), ...e }); this.items = this.items.slice(0, 300); this.save(); },
+  remove(id) { this.items = this.items.filter(x => x.id !== id); this.save(); },
+  clear() { this.items = []; this.save(); },
+  save() { store.set("mc.history", this.items); renderHistory(); }
+};
+
+/* =========================================================
+   Calculator state
+   ========================================================= */
+const BIN = new Set(["+", "−", "×", "÷", "^"]);
+const REMOVABLE = ["asinh(", "acosh(", "atanh(", "^(−1)", "asin(", "acos(", "atan(", "sinh(", "cosh(", "tanh(",
+  "abs(", "sin(", "cos(", "tan(", "log(", "Ans", "ln(", "√(", "∛("];
+
+const calc = {
+  expr: "", evaluated: false, error: null, lastExpr: "", result: "0", ans: 0,
+  angle: "DEG", second: false,
+
+  get trailingNumber() { const m = this.expr.match(/[0-9.]*$/); return m ? m[0] : ""; },
+  get endsWithOpOrOpen() { const l = this.expr.slice(-1); return !l || BIN.has(l) || l === "("; },
+  get closed() {
+    let e = this.expr;
+    while (e && BIN.has(e.slice(-1))) e = e.slice(0, -1);
+    const open = (e.match(/\(/g) || []).length - (e.match(/\)/g) || []).length;
+    return open > 0 ? e + ")".repeat(open) : e;
+  },
+  get main() { return this.evaluated ? this.result : (this.expr || "0"); },
+  get secondary() {
+    if (this.error) return this.error;
+    if (this.evaluated) return this.lastExpr + " =";
+    if (this.expr && isNaN(Number(this.expr))) {
+      try { return "= " + fmt.display(evaluate(this.closed, this.angle, this.ans)); } catch {}
+    }
+    return "";
+  },
+  begin(cont) {
+    this.error = null;
+    if (this.evaluated) { this.expr = cont ? fmt.entry(this.ans) : ""; this.evaluated = false; }
+  },
+  operand(text) {
+    this.begin(false);
+    const l = this.expr.slice(-1), f = text[0];
+    if (l && (isDigit(l) || l === ".") && (isDigit(f) || f === "−")) this.expr += "×";
+    this.expr += text;
+  },
+  digit(d) {
+    this.begin(false);
+    if (d === ".") { const n = this.trailingNumber; if (n.includes(".")) return; this.expr += n ? "." : "0."; return; }
+    if (this.trailingNumber === "0") this.expr = this.expr.slice(0, -1);
+    this.expr += d;
+  },
+  op(o) {
+    this.begin(true);
+    if (!this.expr) { this.expr = o === "−" ? "−" : "0" + o; return; }
+    const l = this.expr.slice(-1);
+    if (BIN.has(l)) {
+      if (o === "−" && l !== "−" && l !== "+") { this.expr += o; return; }
+      while (this.expr && BIN.has(this.expr.slice(-1))) this.expr = this.expr.slice(0, -1);
+      this.expr += this.expr ? o : (o === "−" ? "−" : "0" + o);
+      return;
+    }
+    if (l === "(" && o !== "−") return;
+    this.expr += o;
+  },
+  postfix(s) { this.begin(true); if (!this.expr) this.expr = "0"; if (this.endsWithOpOrOpen) return; this.expr += s; },
+  fn(n) { this.begin(false); this.expr += n + "("; },
+  openParen() { this.begin(false); this.expr += "("; },
+  closeParen() {
+    this.error = null; if (this.evaluated) return;
+    const open = (this.expr.match(/\(/g) || []).length - (this.expr.match(/\)/g) || []).length;
+    if (open > 0 && !this.endsWithOpOrOpen) this.expr += ")";
+  },
+  toggleSign() {
+    this.begin(true);
+    const n = this.trailingNumber;
+    if (!n) {
+      const prev = this.expr.slice(-2, -1);
+      if (this.expr.endsWith("−") && (this.expr.length === 1 || BIN.has(prev) || prev === "(")) this.expr = this.expr.slice(0, -1);
+      else if (this.endsWithOpOrOpen) this.expr += "−";
+      return;
+    }
+    const start = this.expr.length - n.length;
+    if (start > 0 && this.expr[start - 1] === "−") {
+      const before = this.expr.slice(0, start - 1), bl = before.slice(-1);
+      if (!before || BIN.has(bl) || bl === "(") { this.expr = before + n; return; }
+    }
+    this.expr = this.expr.slice(0, start) + "−" + n;
+  },
+  clear() { this.expr = ""; this.evaluated = false; this.error = null; this.result = "0"; },
+  backspace() {
+    this.error = null;
+    if (this.evaluated) return this.clear();
+    const tok = REMOVABLE.find(t => this.expr.endsWith(t));
+    this.expr = this.expr.slice(0, -(tok ? tok.length : 1));
+  },
+  equals() {
+    if (this.evaluated || !this.expr) return;
+    const e = this.closed;
+    try {
+      const v = evaluate(e, this.angle, this.ans);
+      Object.assign(this, { ans: v, lastExpr: e, result: fmt.display(v), evaluated: true, error: null });
+      history.add({ mode: state.mode, expression: e, result: this.result, value: v });
+    } catch (err) { this.error = err instanceof CalcError ? err.message : "Error"; }
+  },
+  insertValue(v) {
+    const t = v < 0 ? `(${fmt.entry(v)})` : fmt.entry(v);
+    if (this.evaluated || !this.expr) { this.evaluated = false; this.error = null; this.expr = fmt.entry(v); }
+    else if (this.endsWithOpOrOpen) this.expr += t;
+    else this.expr = fmt.entry(v);
+  },
+  copyText() {
+    if (this.evaluated) return fmt.raw(this.ans);
+    try { return fmt.raw(evaluate(this.closed, this.angle, this.ans)); } catch { return this.expr; }
+  }
+};
+
+/* =========================================================
+   S&P 500 annual total returns (%), 1928–2025
+   Damodaran (NYU Stern) 1928–2024; 2025 = 17.88%
+   ========================================================= */
+const SP = [43.81,-8.30,-25.12,-43.84,-8.64,49.98,-1.19,46.74,31.94,-35.34,29.28,-1.10,-10.67,-12.77,19.17,25.06,19.03,35.82,
+  -8.43,5.20,5.70,18.30,30.81,23.68,18.15,-1.21,52.56,32.60,7.44,-10.46,43.72,12.06,0.34,26.64,-8.81,22.61,16.42,12.40,-9.97,
+  23.80,10.81,-8.24,3.56,14.22,18.76,-14.31,-25.90,37.00,23.83,-6.98,6.51,18.52,31.74,-4.70,20.42,22.34,6.15,31.24,18.49,5.81,
+  16.54,31.48,-3.06,30.23,7.49,9.97,1.33,37.20,22.68,33.10,28.34,20.89,-9.03,-11.85,-21.97,28.36,10.74,4.83,15.61,5.48,-36.55,
+  25.94,14.82,2.10,15.89,32.15,13.52,1.38,11.77,21.61,-4.23,31.21,18.02,28.47,-18.04,26.06,24.88,17.88]
+  .map((p, i) => ({ year: 1928 + i, r: p / 100 }));
+
+const PERIODS = { all: null, last50: 50, last30: 30, last20: 20, last10: 10 };
+const periodData = k => PERIODS[k] ? SP.slice(-PERIODS[k]) : SP;
+const periodLabel = k => { const d = periodData(k); return `${d[0].year}–${d[d.length - 1].year} (${d.length} yrs)`; };
+const cagr = rs => Math.pow(rs.reduce((a, r) => a * (1 + r), 1), 1 / rs.length) - 1;
+const mean = rs => rs.reduce((a, r) => a + r, 0) / rs.length;
+
+const money = v => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v);
+const compact = v => {
+  const s = v < 0 ? "−" : "", a = Math.abs(v);
+  if (a >= 1e9) return `${s}$${(a / 1e9).toFixed(2)}B`;
+  if (a >= 1e6) return `${s}$${(a / 1e6).toFixed(2)}M`;
+  if (a >= 1e3) return `${s}$${(a / 1e3).toFixed(0)}K`;
+  return `${s}$${a.toFixed(0)}`;
+};
+const pct = v => `${Number(v.toFixed(2))}%`;
+
+const retDefaults = { currentAge: 35, retirementAge: 65, savings: 50000, monthly: 1000, growth: 2, fees: 0.1,
+  inflation: 3, withdrawal: 4, goal: 1500000, method: "sequences", period: "all", real: false,
+  phase: "drawdown", dRetAge: 60, dSavings: 1000000, dSpend: 6000, dPlanAge: 95, ssAmount: 3000, ssAge: 63, ssCola: true, dReal: true };
+const ret = Object.assign({}, retDefaults, store.get("mc.retirement", {}));
+
+function percentile(sorted, p) {
+  const pos = p * (sorted.length - 1), lo = Math.floor(pos), hi = Math.min(lo + 1, sorted.length - 1);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+function project() {
+  const years = ret.retirementAge - ret.currentAge;
+  if (!(years > 0)) return { error: "Retirement age must be greater than current age." };
+  if (years > 80) return { error: "Please use a horizon of 80 years or less." };
+  const data = periodData(ret.period), rs = data.map(d => d.r);
+  const g = ret.growth / 100, fee = ret.fees / 100;
+
+  const simulate = seq => {
+    let bal = Math.max(0, ret.savings); const out = [bal];
+    seq.forEach((r, k) => {
+      const m = Math.pow(Math.max((1 + r) * (1 - fee), 0.0001), 1 / 12) - 1;
+      const c = Math.max(0, ret.monthly) * Math.pow(1 + g, k);
+      for (let i = 0; i < 12; i++) bal = bal * (1 + m) + c;
+      out.push(bal);
+    });
+    return out;
+  };
+
+  const contributed = [Math.max(0, ret.savings)];
+  for (let k = 0; k < years; k++) contributed.push(contributed[k] + Math.max(0, ret.monthly) * 12 * Math.pow(1 + g, k));
+
+  const c = cagr(rs);
+  let paths, starts;
+  if (ret.method === "average") { paths = [simulate(Array(years).fill(c))]; starts = [data[0].year]; }
+  else {
+    paths = rs.map((_, s) => simulate(Array.from({ length: years }, (_, y) => rs[(s + y) % rs.length])));
+    starts = data.map(d => d.year);
+  }
+  const points = [];
+  for (let y = 0; y <= years; y++) {
+    const vals = paths.map(p => p[y]).sort((a, b) => a - b);
+    points.push({ age: ret.currentAge + y, y, low: percentile(vals, .1), med: percentile(vals, .5), high: percentile(vals, .9), contrib: contributed[y] });
+  }
+  const finals = paths.map(p => p[years]), sorted = [...finals].sort((a, b) => a - b);
+  const wi = finals.indexOf(sorted[0]), bi = finals.indexOf(sorted[sorted.length - 1]);
+  return {
+    years, cagr: c, mean: mean(rs), n: paths.length, range: ret.method === "sequences" && paths.length > 1,
+    median: percentile(sorted, .5), low: percentile(sorted, .1), high: percentile(sorted, .9),
+    worst: finals[wi], worstYear: starts[wi], best: finals[bi], bestYear: starts[bi],
+    contributed: contributed[years], success: ret.goal > 0 ? finals.filter(f => f >= ret.goal).length / finals.length : null,
+    points, label: periodLabel(ret.period)
+  };
+}
+
+/* =========================================================
+   App state & rendering
+   ========================================================= */
+const state = {
+  mode: store.get("mc.mode", "basic"),
+  showHistory: store.get("mc.showHistory", true),
+  open: true, quit: false
+};
+const SIZES = { basic: [340, 450], scientific: [600, 450], retirement: [480, 640] };
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+function setMode(m) { state.mode = m; store.set("mc.mode", m); render(); }
+function setHistory(on) { state.showHistory = on; store.set("mc.showHistory", on); render(); }
+
+function keypadHTML(sci) {
+  const B = (label, act, cls = "") => `<button class="${cls}" data-act="${esc(act)}">${label}</button>`;
+  const inv = calc.second;
+  const trig = n => B(inv ? `${n}<sup>−1</sup>` : n, `trig:${n}`, "fn");
+  const rows = [
+    [sci && [B("2nd", "second", inv ? "on" : "fn"), B("(", "open", "fn"), B(")", "close", "fn"), B(calc.angle === "DEG" ? "Deg" : "Rad", "angle", "fn"), B("Ans", "ins:Ans", "fn")],
+      B("AC", "clear", "util"), B("±", "sign", "util"), B("%", "post:%", "util"), B("÷", "op:÷", "op")],
+    [sci && [B("x²", "post:^2", "fn"), B("x³", "post:^3", "fn"), B("xʸ", "op:^", "fn"), B("eˣ", "ins:e^(", "fn"), B("10ˣ", "ins:10^(", "fn")],
+      B("7", "d:7"), B("8", "d:8"), B("9", "d:9"), B("×", "op:×", "op")],
+    [sci && [B("1/x", "post:^(−1)", "fn"), B("√x", "fn:√", "fn"), B("∛x", "fn:∛", "fn"), B("ln", "fn:ln", "fn"), B("log", "fn:log", "fn")],
+      B("4", "d:4"), B("5", "d:5"), B("6", "d:6"), B("−", "op:−", "op")],
+    [sci && [trig("sin"), trig("cos"), trig("tan"), B("π", "ins:π", "fn"), B("e", "ins:e", "fn")],
+      B("1", "d:1"), B("2", "d:2"), B("3", "d:3"), B("+", "op:+", "op")],
+    [sci && [B("x!", "post:!", "fn"), B("|x|", "fn:abs", "fn"), trig("sinh"), trig("cosh"), trig("tanh")],
+      B("0", "d:0", "wide"), B(".", "d:."), B("=", "eq", "op")]
+  ];
+  return rows.map(r => r.flat().filter(Boolean).join("")).join("");
+}
+
+function renderCalc() {
+  const sci = state.mode === "scientific";
+  $("main").innerHTML = `
+    <div class="calc">
+      <div class="display">
+        <div class="top">
+          ${sci ? `<span class="badge">${calc.angle}</span>${calc.second ? `<span class="badge">2nd</span>` : ""}` : ""}
+          <div class="grow"></div>
+          <button class="icon-btn" data-act="copy" title="Copy result (⌘C)">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5" y="5" width="8.5" height="9" rx="1.5"/><path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H10"/></svg></button>
+          <button class="icon-btn" data-act="back" title="Backspace">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M5.5 3h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-8L1.5 8z"/><path d="M8 6l4 4M12 6l-4 4"/></svg></button>
+        </div>
+        <div class="secondary ${calc.error ? "error" : ""}"><span>${esc(calc.secondary) || "&nbsp;"}</span></div>
+        <div class="mainline" id="mainline"><span>${esc(calc.main)}</span></div>
+      </div>
+      <div class="keys" style="grid-template-columns: repeat(${sci ? 9 : 4}, 1fr)">${keypadHTML(sci)}</div>
+    </div>`;
+  fitMain();
+}
+
+function fitMain() {
+  const el = $("mainline"); if (!el) return;
+  let size = 42; el.style.fontSize = size + "px";
+  while (el.scrollWidth > el.clientWidth && size > 15) { size -= 2; el.style.fontSize = size + "px"; }
+}
+
+function updateDisplayOnly() {
+  if (state.mode === "retirement") return;
+  renderCalc();
+}
+
+/* ---------- Retirement view ---------- */
+function retirementHTML() {
+  const opt = (v, cur, label) => `<option value="${v}" ${v === cur ? "selected" : ""}>${label}</option>`;
+  const num = (k, cls = "", step = "any") => `<input type="number" step="${step}" data-k="${k}" value="${ret[k]}" class="${cls}">`;
+  return `
+  <div class="ret" id="retScroll">
+    ${PHASE_TABS()}
+    <div class="group"><h4>Timeline</h4>
+      <div class="row"><label>Current age</label>${num("currentAge", "short", "1")}</div>
+      <div class="row"><label>Retirement age</label>${num("retirementAge", "short", "1")}</div>
+    </div>
+    <div class="group"><h4>Savings</h4>
+      <div class="row"><label>Current savings ($)</label>${num("savings")}</div>
+      <div class="row"><label>Monthly contribution ($)</label>${num("monthly")}</div>
+      <div class="row"><label>Contribution increase / year</label>${num("growth", "short")}<span class="unit">%</span></div>
+    </div>
+    <div class="group"><h4>Market assumptions — S&amp;P 500 total return</h4>
+      <div class="row"><label>Historical period</label><select data-k="period">
+        ${Object.keys(PERIODS).map(k => opt(k, ret.period, periodLabel(k))).join("")}</select></div>
+      <div class="row"><label>Method</label><select data-k="method">
+        ${opt("sequences", ret.method, "Historical sequences")}${opt("average", ret.method, "Historical average (CAGR)")}</select></div>
+      <div class="row"><label>Annual fees (MER)</label>${num("fees", "short")}<span class="unit">%</span></div>
+      <div class="row"><label>Inflation</label>${num("inflation", "short")}<span class="unit">%</span></div>
+      <div class="row"><label>Withdrawal rate</label>${num("withdrawal", "short")}<span class="unit">%</span></div>
+      <div class="row"><label>Goal at retirement ($)</label>${num("goal")}</div>
+    </div>
+    <div class="note">${ret.method === "sequences"
+      ? "Replays your plan through every historical start year (1929, 1966, 2000…) and shows the spread of outcomes. Sequences running past 2025 wrap around to the start of the period."
+      : "Grows savings at the period's compound annual growth rate every year — a smooth line with no market ups and downs."}</div>
+    <div id="retResults"></div>
+  </div>`;
+}
+
+function renderRetResults() {
+  const box = $("retResults"); if (!box) return;
+  const r = project();
+  if (r.error) { box.innerHTML = `<div class="group"><div class="err">⚠︎ ${esc(r.error)}</div></div>`; return; }
+  const infl = 1 + ret.inflation / 100;
+  const adj = (v, y) => ret.real ? v / Math.pow(infl, y) : v;
+  const M = v => money(adj(v, r.years));
+  const income = adj(r.median, r.years) * ret.withdrawal / 100;
+  const row = (l, v) => `<div class="row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`;
+  box.innerHTML = `
+    <div class="group"><h4>Projection at age ${ret.retirementAge} (${r.years} years)</h4>
+      <div style="padding:6px 0 4px">
+        <div class="note" style="padding:0">${r.range ? "Median projected balance" : "Projected balance"}</div>
+        <div class="big">${M(r.median)}</div>
+        ${r.range ? `<div style="color:var(--muted)">80% of historical outcomes: ${M(r.low)} – ${M(r.high)}</div>` : ""}
+      </div>
+      <div class="chart">${chartSVG(r, adj)}</div>
+      <div class="row"><label class="switch"><input type="checkbox" id="realToggle" ${ret.real ? "checked" : ""}> Show in today's dollars (${pct(ret.inflation)} inflation)</label></div>
+      ${r.range ? row(`Worst start year (${r.worstYear})`, M(r.worst)) + row(`Best start year (${r.bestYear})`, M(r.best)) : ""}
+      ${r.success != null ? row(`Reached ${compact(ret.goal)} goal`, r.range ? `${Math.round(r.success * 100)}% of ${r.n} sequences` : (r.success >= 1 ? "Yes" : "No")) : ""}
+      ${row("Total contributed", M(r.contributed))}
+      ${row("Investment growth", M(r.median - r.contributed))}
+      ${row("In today's dollars", money(r.median / Math.pow(infl, r.years)))}
+      ${row(`Annual income at ${pct(ret.withdrawal)}`, `${money(income)} (${money(income / 12)}/mo)`)}
+      ${row(`S&amp;P 500 ${r.label}`, `CAGR ${pct(r.cagr * 100)} · avg ${pct(r.mean * 100)}`)}
+      <div class="row"><button class="btn" id="addRet">＋ Add to History</button></div>
+    </div>
+    <div class="note">Based on historical S&amp;P 500 total returns (US dollars, dividends reinvested, before taxes). Past performance doesn't guarantee future results — this is an educational estimate, not financial advice.</div>`;
+  $("realToggle").onchange = e => { ret.real = e.target.checked; store.set("mc.retirement", ret); renderRetResults(); };
+  $("addRet").onclick = () => {
+    let ex = `Age ${ret.currentAge}→${ret.retirementAge}: ${money(ret.savings)} + ${money(ret.monthly)}/mo`;
+    if (ret.growth) ex += ` (+${pct(ret.growth)}/yr)`;
+    ex += `\nS&P 500 ${r.label}, ` + (r.range ? `${r.n} historical sequences` : `CAGR ${pct(r.cagr * 100)}`);
+    if (ret.fees > 0) ex += `, fees ${pct(ret.fees)}`;
+    history.add({ mode: "retirement", expression: ex,
+      result: compact(r.median) + (r.range ? ` median (${compact(r.low)}–${compact(r.high)})` : ""), value: Math.round(r.median) });
+    toast("Added to history");
+  };
+}
+
+function chartSVG(r, adj) {
+  const W = 430, H = 190, L = 52, R = 10, T = 12, B = 24;
+  const pts = r.points;
+  const maxY = Math.max(...pts.map(p => adj(r.range ? p.high : p.med, p.y)), ret.goal || 0) * 1.08 || 1;
+  const x0 = pts[0].age, x1 = pts[pts.length - 1].age;
+  const X = a => L + (a - x0) / Math.max(1, x1 - x0) * (W - L - R);
+  const Y = v => T + (1 - v / maxY) * (H - T - B);
+  const line = f => pts.map((p, i) => `${i ? "L" : "M"}${X(p.age).toFixed(1)},${Y(adj(f(p), p.y)).toFixed(1)}`).join("");
+  const step = niceStep(maxY / 4);
+  let grid = "";
+  for (let v = 0; v <= maxY; v += step) {
+    grid += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="currentColor" stroke-opacity=".1"/>
+             <text x="${L - 6}" y="${Y(v) + 3.5}" text-anchor="end" font-size="10" fill="currentColor" fill-opacity=".55">${compact(v)}</text>`;
+  }
+  const xStep = (x1 - x0) > 40 ? 10 : 5;
+  for (let a = Math.ceil(x0 / xStep) * xStep; a <= x1; a += xStep)
+    grid += `<text x="${X(a)}" y="${H - 7}" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity=".55">${a}</text>`;
+  const area = r.range
+    ? `<path d="${pts.map((p, i) => `${i ? "L" : "M"}${X(p.age)},${Y(adj(p.high, p.y))}`).join("")}${[...pts].reverse().map(p => `L${X(p.age)},${Y(adj(p.low, p.y))}`).join("")}Z" fill="#0a84ff" fill-opacity=".16"/>`
+    : "";
+  const goal = ret.goal > 0
+    ? `<line x1="${L}" x2="${W - R}" y1="${Y(ret.goal)}" y2="${Y(ret.goal)}" stroke="#30a46c" stroke-dasharray="2 3"/>
+       <text x="${L + 4}" y="${Y(ret.goal) - 4}" font-size="10" fill="#30a46c">Goal ${compact(ret.goal)}</text>` : "";
+  return `<svg viewBox="0 0 ${W} ${H}" style="color:var(--text)">
+    ${grid}${area}
+    <path d="${line(p => p.contrib)}" fill="none" stroke="currentColor" stroke-opacity=".45" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <path d="${line(p => p.med)}" fill="none" stroke="#0a84ff" stroke-width="2.5" stroke-linejoin="round"/>
+    ${goal}
+    <g font-size="10" fill="currentColor" fill-opacity=".7">
+      <line x1="${L + 6}" x2="${L + 22}" y1="${T + 4}" y2="${T + 4}" stroke="#0a84ff" stroke-width="2.5"/><text x="${L + 26}" y="${T + 7}">${r.range ? "Median" : "Projected"}</text>
+      ${r.range ? `<rect x="${L + 80}" y="${T}" width="14" height="8" fill="#0a84ff" fill-opacity=".2"/><text x="${L + 98}" y="${T + 7}">10th–90th pct</text>` : ""}
+      <line x1="${L + 180}" x2="${L + 196}" y1="${T + 4}" y2="${T + 4}" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="4 3"/><text x="${L + 200}" y="${T + 7}">Contributed</text>
+    </g>
+  </svg>`;
+}
+function niceStep(raw) {
+  const p = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
+}
+
+/* ---------- Drawdown (in retirement) ---------- */
+const PHASE_TABS = () => `
+  <div class="seg phase" id="phaseSeg">
+    <button data-phase="drawdown" class="${ret.phase === "drawdown" ? "on" : ""}">In retirement</button>
+    <button data-phase="accumulate" class="${ret.phase === "accumulate" ? "on" : ""}">Saving for retirement</button>
+  </div>`;
+
+function drawdownHTML() {
+  const opt = (v, cur, label) => `<option value="${v}" ${v === cur ? "selected" : ""}>${label}</option>`;
+  const num = (k, cls = "", step = "any") => `<input type="number" step="${step}" data-k="${k}" value="${ret[k]}" class="${cls}">`;
+  return `
+  <div class="ret" id="retScroll">
+    ${PHASE_TABS()}
+    <div class="group"><h4>Retirement</h4>
+      <div class="row"><label>Age to retire</label>${num("dRetAge", "short", "1")}</div>
+      <div class="row"><label>Savings at start of retirement ($)</label>${num("dSavings")}</div>
+      <div class="row"><label>Monthly spending need ($)</label>${num("dSpend")}</div>
+      <div class="row"><label>Plan until age</label>${num("dPlanAge", "short", "1")}</div>
+    </div>
+    <div class="group"><h4>Social Security</h4>
+      <div class="row"><label>Monthly benefit ($)</label>${num("ssAmount")}</div>
+      <div class="row"><label>Benefit starts at age</label>${num("ssAge", "short", "1")}</div>
+      <div class="row"><label class="switch"><input type="checkbox" data-k="ssCola" ${ret.ssCola ? "checked" : ""}> Benefit rises with inflation (COLA)</label></div>
+    </div>
+    <div class="group"><h4>Market assumptions — S&amp;P 500 total return</h4>
+      <div class="row"><label>Historical period</label><select data-k="period">
+        ${Object.keys(PERIODS).map(k => opt(k, ret.period, periodLabel(k))).join("")}</select></div>
+      <div class="row"><label>Method</label><select data-k="method">
+        ${opt("sequences", ret.method, "Historical sequences")}${opt("average", ret.method, "Historical average (CAGR)")}</select></div>
+      <div class="row"><label>Annual fees (MER)</label>${num("fees", "short")}<span class="unit">%</span></div>
+      <div class="row"><label>Inflation (spending grows by)</label>${num("inflation", "short")}<span class="unit">%</span></div>
+    </div>
+    <div class="note">Spending and the Social Security amount are in dollars as of the day you retire; spending grows with inflation each year. Each month the portfolio earns that year's S&amp;P 500 return (less fees) and pays whatever spending Social Security doesn't cover.${ret.method === "sequences" ? " Every historical start year since 1928 is tested; sequences running past 2025 wrap around." : ""}</div>
+    <div id="retResults"></div>
+  </div>`;
+}
+
+/* Simulates one return sequence. Returns balances at each age (start of retirement → plan age) and depletion age. */
+function drawSim(seq, spendMonthly) {
+  const fee = ret.fees / 100, infl = ret.inflation / 100;
+  let bal = Math.max(0, ret.dSavings), depleted = null, ssPaid = 0, withdrawn = 0;
+  const out = [bal];
+  seq.forEach((r, k) => {
+    const age = ret.dRetAge + k;
+    const m = Math.pow(Math.max((1 + r) * (1 - fee), 0.0001), 1 / 12) - 1;
+    const spend = spendMonthly * Math.pow(1 + infl, k);
+    const ss = age >= ret.ssAge ? ret.ssAmount * (ret.ssCola ? Math.pow(1 + infl, k) : 1) : 0;
+    for (let i = 0; i < 12; i++) {
+      const need = spend - ss;
+      ssPaid += ss;
+      if (bal > 0) {
+        bal = bal * (1 + m) - need;
+        if (need > 0) withdrawn += need;
+        if (bal <= 0) { bal = 0; if (depleted === null) depleted = age + (i + 1) / 12; }
+      } else if (need < 0) bal -= need;   // surplus Social Security is saved
+    }
+    out.push(bal);
+  });
+  return { out, depleted, ssPaid, withdrawn };
+}
+
+function drawSequences(years) {
+  const data = periodData(ret.period), rs = data.map(d => d.r), c = cagr(rs);
+  if (ret.method === "average") return { seqs: [Array(years).fill(c)], starts: [data[0].year], c, rs };
+  return { seqs: rs.map((_, s) => Array.from({ length: years }, (_, y) => rs[(s + y) % rs.length])), starts: data.map(d => d.year), c, rs };
+}
+
+function projectDrawdown() {
+  const years = ret.dPlanAge - ret.dRetAge;
+  if (!(years > 0)) return { error: "Plan-until age must be greater than the age you retire." };
+  if (years > 60) return { error: "Please use a retirement horizon of 60 years or less." };
+  if (!(ret.dSavings >= 0)) return { error: "Savings must be zero or more." };
+  const { seqs, starts, c, rs } = drawSequences(years);
+  const sims = seqs.map(s => drawSim(s, ret.dSpend));
+  const points = [];
+  for (let y = 0; y <= years; y++) {
+    const v = sims.map(s => s.out[y]).sort((a, b) => a - b);
+    points.push({ age: ret.dRetAge + y, y, low: percentile(v, .1), med: percentile(v, .5), high: percentile(v, .9) });
+  }
+  const lasted = sims.filter(s => s.depleted === null).length;
+  const finals = sims.map(s => s.out[years]).sort((a, b) => a - b);
+  // Worst case: earliest depletion (or lowest ending balance)
+  let wi = 0;
+  sims.forEach((s, i) => {
+    const w = sims[wi];
+    const key = x => x.depleted ?? (1000 + x.out[years] / 1e12);
+    if (key(s) < key(w)) wi = i;
+  });
+  const depletedAges = sims.filter(s => s.depleted !== null).map(s => s.depleted).sort((a, b) => a - b);
+
+  // Highest starting monthly spending that lasts in ≥ 90% of sequences (or 100% for the average method)
+  const target = ret.method === "average" ? 1 : 0.9;
+  const okAt = spend => sims.length && seqs.filter(s => drawSim(s, spend).depleted === null).length / seqs.length >= target;
+  let lo = 0, hi = Math.max(1000, ret.dSpend * 4, ret.dSavings / 60 + ret.ssAmount * 2);
+  for (let i = 0; i < 32; i++) { const mid = (lo + hi) / 2; if (okAt(mid)) lo = mid; else hi = mid; }
+
+  const ssStartIdx = Math.max(0, ret.ssAge - ret.dRetAge);
+  const ssAtStart = ret.ssAge <= ret.dPlanAge ? ret.ssAmount * (ret.ssCola ? Math.pow(1 + ret.inflation / 100, ssStartIdx) : 1) : 0;
+  return {
+    years, n: sims.length, range: ret.method === "sequences" && sims.length > 1, cagr: c, mean: mean(rs),
+    success: lasted / sims.length, points, medianEnd: percentile(finals, .5), lowEnd: percentile(finals, .1),
+    worst: sims[wi], worstYear: starts[wi], firstDepletion: depletedAges[0] ?? null,
+    medianDepletion: depletedAges.length ? percentile(depletedAges, .5) : null, depletedCount: depletedAges.length,
+    sustainable: lo, ssAtStart, ssStartIdx,
+    medianSS: percentile(sims.map(s => s.ssPaid).sort((a, b) => a - b), .5),
+    rateBefore: ret.dSavings > 0 ? ret.dSpend * 12 / ret.dSavings * 100 : null,
+    rateAfter: ret.dSavings > 0 ? Math.max(0, ret.dSpend - ret.ssAmount) * 12 / ret.dSavings * 100 : null,
+    label: periodLabel(ret.period)
+  };
+}
+
+function renderDrawResults() {
+  const box = $("retResults"); if (!box) return;
+  const r = projectDrawdown();
+  if (r.error) { box.innerHTML = `<div class="group"><div class="err">⚠︎ ${esc(r.error)}</div></div>`; return; }
+  const infl = 1 + ret.inflation / 100;
+  const adj = (v, y) => ret.dReal ? v / Math.pow(infl, y) : v;
+  const row = (l, v) => `<div class="row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`;
+  const ageFmt = a => `${Math.floor(a)}${a % 1 >= 0.5 ? "½" : ""}`;
+  const pctTxt = Math.round(r.success * 100);
+  const color = r.success >= 0.9 ? "var(--good)" : r.success >= 0.75 ? "var(--op)" : "var(--bad)";
+  const bridge = ret.ssAge > ret.dRetAge ? Math.min(ret.ssAge, ret.dPlanAge) - ret.dRetAge : 0;
+
+  box.innerHTML = `
+    <div class="group"><h4>Retirement from age ${ret.dRetAge} to ${ret.dPlanAge} (${r.years} years)</h4>
+      <div style="padding:6px 0 4px">
+        <div class="note" style="padding:0">${r.range ? "Money lasted to age " + ret.dPlanAge + " in" : "Money lasts to age " + ret.dPlanAge + "?"}</div>
+        <div class="big" style="color:${color}">${r.range ? `${pctTxt}% <span style="font-size:15px;font-weight:500;color:var(--muted)">of ${r.n} historical sequences</span>` : (r.success >= 1 ? "Yes" : `No — runs out at ${ageFmt(r.worst.depleted)}`)}</div>
+        <div style="color:var(--muted)">Median balance at ${ret.dPlanAge}: ${money(adj(r.medianEnd, r.years))}${r.range ? ` · 10th percentile: ${money(adj(r.lowEnd, r.years))}` : ""}</div>
+      </div>
+      <div class="chart">${drawChartSVG(r, adj)}</div>
+      <div class="row"><label class="switch"><input type="checkbox" id="realToggle" ${ret.dReal ? "checked" : ""}> Show balances in today's dollars (${pct(ret.inflation)} inflation)</label></div>
+      ${row("Sustainable spending (lasts in " + (r.range ? "90% of sequences" : "average case") + ")", `<b>${money(r.sustainable)}/mo</b> at start`)}
+      ${r.range ? row(`Worst start year (${r.worstYear})`, r.worst.depleted !== null ? `runs out at age ${ageFmt(r.worst.depleted)}` : `${money(adj(r.worst.out[r.years], r.years))} left`) : ""}
+      ${r.range && r.depletedCount ? row("Sequences that ran out", `${r.depletedCount} of ${r.n} · median at age ${ageFmt(r.medianDepletion)}`) : ""}
+      ${bridge > 0 ? row(`Bridge years before Social Security (${ret.dRetAge}–${ret.ssAge})`, `${bridge} yrs fully from savings`) : ""}
+      ${r.rateBefore != null ? row("Initial withdrawal rate", bridge > 0 ? `${pct(r.rateBefore)} before SS → ${pct(r.rateAfter)} after` : pct(r.rateAfter)) : ""}
+      ${ret.ssAge <= ret.dPlanAge ? row(`Social Security at age ${ret.ssAge}`, `${money(r.ssAtStart)}/mo${ret.ssCola ? " (inflation-adjusted)" : ""}`) : ""}
+      ${row("Total Social Security received", money(r.medianSS))}
+      ${row(`S&amp;P 500 ${r.label}`, `CAGR ${pct(r.cagr * 100)} · avg ${pct(r.mean * 100)}`)}
+      <div class="row"><button class="btn" id="addRet">＋ Add to History</button></div>
+    </div>
+    <div class="note">Based on historical S&amp;P 500 total returns (100% stocks, US dollars, dividends reinvested, before taxes). Real portfolios usually hold bonds too. Past performance doesn't guarantee future results — this is an educational estimate, not financial advice.</div>`;
+
+  $("realToggle").onchange = e => { ret.dReal = e.target.checked; store.set("mc.retirement", ret); renderDrawResults(); };
+  $("addRet").onclick = () => {
+    const ex = `Retire ${ret.dRetAge}→${ret.dPlanAge}: ${money(ret.dSavings)}, spend ${money(ret.dSpend)}/mo\nSS ${money(ret.ssAmount)}/mo at ${ret.ssAge} · S&P 500 ${r.label}`;
+    history.add({ mode: "retirement", expression: ex,
+      result: (r.range ? `${pctTxt}% success` : (r.success >= 1 ? "Lasts" : "Runs out")) + ` · safe ${compact(r.sustainable)}/mo`,
+      value: Math.round(r.sustainable) });
+    toast("Added to history");
+  };
+}
+
+function drawChartSVG(r, adj) {
+  const W = 430, H = 190, L = 52, R = 10, T = 12, B = 24, pts = r.points;
+  const maxY = Math.max(...pts.map(p => adj(r.range ? p.high : p.med, p.y))) * 1.08 || 1;
+  const x0 = pts[0].age, x1 = pts[pts.length - 1].age;
+  const X = a => L + (a - x0) / Math.max(1, x1 - x0) * (W - L - R);
+  const Y = v => T + (1 - Math.min(v, maxY) / maxY) * (H - T - B);
+  const line = f => pts.map((p, i) => `${i ? "L" : "M"}${X(p.age).toFixed(1)},${Y(adj(f(p), p.y)).toFixed(1)}`).join("");
+  const step = niceStep(maxY / 4);
+  let g = "";
+  for (let v = 0; v <= maxY; v += step)
+    g += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="currentColor" stroke-opacity=".1"/>
+          <text x="${L - 6}" y="${Y(v) + 3.5}" text-anchor="end" font-size="10" fill="currentColor" fill-opacity=".55">${compact(v)}</text>`;
+  const xs = (x1 - x0) > 30 ? 10 : 5;
+  for (let a = Math.ceil(x0 / xs) * xs; a <= x1; a += xs)
+    g += `<text x="${X(a)}" y="${H - 7}" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity=".55">${a}</text>`;
+  const area = r.range ? `<path d="${pts.map((p, i) => `${i ? "L" : "M"}${X(p.age)},${Y(adj(p.high, p.y))}`).join("")}${[...pts].reverse().map(p => `L${X(p.age)},${Y(adj(p.low, p.y))}`).join("")}Z" fill="#0a84ff" fill-opacity=".16"/>` : "";
+  const ss = ret.ssAge >= x0 && ret.ssAge <= x1
+    ? `<line x1="${X(ret.ssAge)}" x2="${X(ret.ssAge)}" y1="${T + 14}" y2="${H - B}" stroke="#30a46c" stroke-dasharray="3 3"/>
+       <text x="${X(ret.ssAge) + 4}" y="${T + 26}" font-size="10" fill="#30a46c">Social Security ${ret.ssAge}</text>` : "";
+  return `<svg viewBox="0 0 ${W} ${H}" style="color:var(--text)">
+    ${g}${area}${ss}
+    ${r.range ? `<path d="${line(p => p.low)}" fill="none" stroke="#e5484d" stroke-width="1.5" stroke-opacity=".8"/>` : ""}
+    <path d="${line(p => p.med)}" fill="none" stroke="#0a84ff" stroke-width="2.5" stroke-linejoin="round"/>
+    <g font-size="10" fill="currentColor" fill-opacity=".7">
+      <line x1="${L + 6}" x2="${L + 22}" y1="${T + 4}" y2="${T + 4}" stroke="#0a84ff" stroke-width="2.5"/><text x="${L + 26}" y="${T + 7}">${r.range ? "Median" : "Balance"}</text>
+      ${r.range ? `<rect x="${L + 76}" y="${T}" width="14" height="8" fill="#0a84ff" fill-opacity=".2"/><text x="${L + 94}" y="${T + 7}">10th–90th pct</text>
+      <line x1="${L + 172}" x2="${L + 188}" y1="${T + 4}" y2="${T + 4}" stroke="#e5484d" stroke-width="1.5"/><text x="${L + 192}" y="${T + 7}">10th pct (bad luck)</text>` : ""}
+    </g>
+  </svg>`;
+}
+
+function renderRetirement() {
+  const drawdown = ret.phase === "drawdown";
+  $("main").innerHTML = drawdown ? drawdownHTML() : retirementHTML();
+  const results = drawdown ? renderDrawResults : renderRetResults;
+  $("main").querySelectorAll("#phaseSeg button").forEach(b => b.addEventListener("click", () => {
+    ret.phase = b.dataset.phase; store.set("mc.retirement", ret); renderRetirement();
+  }));
+  $("main").querySelectorAll("[data-k]").forEach(el => {
+    const isSelect = el.tagName === "SELECT", isCheck = el.type === "checkbox";
+    const handler = () => {
+      const k = el.dataset.k;
+      ret[k] = isSelect ? el.value : isCheck ? el.checked : (parseFloat(el.value) || 0);
+      store.set("mc.retirement", ret);
+      if (isSelect) { const sc = $("retScroll").scrollTop; renderRetirement(); $("retScroll").scrollTop = sc; }
+      else results();
+    };
+    el.addEventListener(isSelect || isCheck ? "change" : "input", handler);
+  });
+  results();
+}
+
+/* ---------- History ---------- */
+function renderHistory() {
+  $("clearHist").disabled = !history.items.length;
+  if (!history.items.length) { $("histList").innerHTML = `<div class="empty">🕘<br>No calculations yet</div>`; return; }
+  const icon = { basic: "±", scientific: "ƒ", retirement: "📈" };
+  $("histList").innerHTML = history.items.map(e => `
+    <div class="entry" data-id="${e.id}" title="Click to use this result · right-click to delete">
+      <div class="ex">${esc(e.expression)}</div>
+      <div class="res">${esc(e.result)}</div>
+      <div class="meta">${icon[e.mode] || ""} ${new Date(e.date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</div>
+    </div>`).join("");
+}
+
+/* ---------- Layout ---------- */
+function render() {
+  const [w, h] = SIZES[state.mode];
+  $("main").style.width = w + "px"; $("main").style.height = h + "px";
+  $("history").style.display = state.showHistory ? "flex" : "none";
+  $("history").style.height = h + "px";
+  $("histBtn").classList.toggle("on", state.showHistory);
+  document.querySelectorAll("#modeSeg button").forEach(b => b.classList.toggle("on", b.dataset.mode === state.mode));
+  state.mode === "retirement" ? renderRetirement() : renderCalc();
+  renderHistory();
+  position();
+}
+
+function position() {
+  const pop = $("popover"), btn = $("statusBtn").getBoundingClientRect();
+  const width = pop.offsetWidth;
+  let right = window.innerWidth - (btn.left + btn.width / 2) - 24;
+  right = Math.max(8, Math.min(right, window.innerWidth - width - 8));
+  pop.style.right = right + "px";
+  const cx = btn.left + btn.width / 2;
+  pop.style.setProperty("--arrow-right", Math.max(10, (window.innerWidth - right) - cx - 7) + "px");
+}
+
+function setOpen(open) {
+  state.open = open;
+  $("popover").classList.toggle("hidden", !open);
+  $("statusBtn").classList.toggle("active", open);
+  $("hint").style.opacity = open ? ".75" : "1";
+  closeMenu();
+  if (open) { state.quit = false; $("statusBtn").classList.remove("quit"); position(); }
+}
+
+function quit() {
+  setOpen(false); state.quit = true; $("statusBtn").classList.add("quit");
+  toast("MenuCalc quit — click the icon to relaunch");
+}
+
+/* ---------- Menus ---------- */
+function openMenu(x, y, alignRight) {
+  const m = $("menu");
+  const item = (label, act, opts = {}) =>
+    `<button data-menu="${act}" ${opts.disabled ? "disabled" : ""}><span class="check">${opts.checked ? "✓" : ""}</span>${label}${opts.key ? `<span class="key">${opts.key}</span>` : ""}</button>`;
+  m.innerHTML = [
+    item("Basic Calculator", "mode:basic", { checked: state.mode === "basic", key: "⌘1" }),
+    item("Scientific Calculator", "mode:scientific", { checked: state.mode === "scientific", key: "⌘2" }),
+    item("Retirement Calculator", "mode:retirement", { checked: state.mode === "retirement", key: "⌘3" }),
+    "<hr>",
+    item("Show History Panel", "toggleHistory", { checked: state.showHistory, key: "⌘H" }),
+    item("Clear History", "clearHistory", { disabled: !history.items.length, key: "⇧⌘K" }),
+    "<hr>",
+    item(state.open ? "Hide Calculator" : "Open Calculator", state.open ? "hide" : "show", { key: state.open ? "Esc" : "" }),
+    item("Quit MenuCalc", "quit", { key: "⌘Q" })
+  ].join("");
+  m.classList.add("open");
+  const w = m.offsetWidth;
+  m.style.left = (alignRight ? Math.max(8, x - w) : Math.min(x, window.innerWidth - w - 8)) + "px";
+  m.style.top = y + "px";
+}
+function closeMenu() { $("menu").classList.remove("open"); }
+
+$("menu").addEventListener("click", e => {
+  const b = e.target.closest("[data-menu]"); if (!b || b.disabled) return;
+  const a = b.dataset.menu; closeMenu();
+  if (a.startsWith("mode:")) { setMode(a.slice(5)); setOpen(true); }
+  else if (a === "toggleHistory") setHistory(!state.showHistory);
+  else if (a === "clearHistory") history.clear();
+  else if (a === "hide") setOpen(false);
+  else if (a === "show") setOpen(true);
+  else if (a === "quit") quit();
+});
+
+/* =========================================================
+   Events
+   ========================================================= */
+$("statusBtn").addEventListener("click", e => { e.stopPropagation(); setOpen(!state.open); });
+$("statusBtn").addEventListener("contextmenu", e => {
+  e.preventDefault(); e.stopPropagation();
+  const r = $("statusBtn").getBoundingClientRect(); openMenu(r.right, r.bottom + 4, true);
+});
+$("menuBtn").addEventListener("click", e => {
+  e.stopPropagation();
+  if ($("menu").classList.contains("open")) return closeMenu();
+  const r = $("menuBtn").getBoundingClientRect(); openMenu(r.right, r.bottom + 4, true);
+});
+$("quitBtn").addEventListener("click", quit);
+$("histBtn").addEventListener("click", () => setHistory(!state.showHistory));
+$("clearHist").addEventListener("click", () => history.clear());
+$("modeSeg").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setMode(b.dataset.mode); });
+
+$("histList").addEventListener("click", e => {
+  const el = e.target.closest(".entry"); if (!el) return;
+  const item = history.items.find(x => String(x.id) === el.dataset.id);
+  if (!item || item.value == null) return;
+  if (state.mode === "retirement") setMode("basic");
+  calc.insertValue(item.value); updateDisplayOnly();
+});
+$("histList").addEventListener("contextmenu", e => {
+  const el = e.target.closest(".entry"); if (!el) return;
+  e.preventDefault(); history.remove(history.items.find(x => String(x.id) === el.dataset.id)?.id);
+  toast("Entry deleted");
+});
+
+$("main").addEventListener("click", e => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  doAction(b.dataset.act);
+});
+
+function doAction(act) {
+  const [k, ...rest] = act.split(":"), arg = rest.join(":");
+  switch (k) {
+    case "d": calc.digit(arg); break;
+    case "op": calc.op(arg); break;
+    case "post": calc.postfix(arg); break;
+    case "fn": calc.fn(arg); break;
+    case "ins": calc.operand(arg); break;
+    case "trig": calc.fn(calc.second ? "a" + arg : arg); calc.second = false; break;
+    case "second": calc.second = !calc.second; break;
+    case "angle": calc.angle = calc.angle === "DEG" ? "RAD" : "DEG"; break;
+    case "open": calc.openParen(); break;
+    case "close": calc.closeParen(); break;
+    case "clear": calc.clear(); break;
+    case "sign": calc.toggleSign(); break;
+    case "eq": calc.equals(); break;
+    case "back": calc.backspace(); break;
+    case "copy": copy(calc.copyText()); break;
+  }
+  updateDisplayOnly();
+}
+
+function flash(act) {
+  const b = $("main").querySelector(`[data-act="${CSS.escape(act)}"]`);
+  if (b) { b.classList.add("flash"); setTimeout(() => b.classList.remove("flash"), 90); }
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { if ($("menu").classList.contains("open")) closeMenu(); else if (state.open) setOpen(false); e.preventDefault(); return; }
+  if (!state.open) return;
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && !e.shiftKey) {
+    const m = { "1": "basic", "2": "scientific", "3": "retirement" }[e.key];
+    if (m) { setMode(m); e.preventDefault(); return; }
+    if (e.key.toLowerCase() === "h") { setHistory(!state.showHistory); e.preventDefault(); return; }
+    if (e.key.toLowerCase() === "q") { quit(); e.preventDefault(); return; }
+  }
+  if (mod && e.shiftKey && e.key.toLowerCase() === "k") { history.clear(); e.preventDefault(); return; }
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "select" || tag === "textarea" || state.mode === "retirement") return;
+  if (mod && e.key.toLowerCase() === "c") { copy(calc.copyText()); e.preventDefault(); return; }
+  if (mod) return;
+
+  const keymap = {
+    "Enter": "eq", "=": "eq", "Backspace": "back", "Delete": "clear", "c": "clear", "C": "clear",
+    "+": "op:+", "-": "op:−", "*": "op:×", "x": "op:×", "/": "op:÷", "^": "op:^", "%": "post:%", "!": "post:!",
+    "(": "open", ")": "close", ".": "d:.", ",": "d:.", "p": "ins:π", "e": "ins:e",
+    "s": "fn:sin", "o": "fn:cos", "t": "fn:tan", "l": "fn:ln", "r": "fn:√"
+  };
+  let act = /^[0-9]$/.test(e.key) ? "d:" + e.key : keymap[e.key];
+  if (!act) return;
+  e.preventDefault(); doAction(act); flash(act);
+});
+
+document.addEventListener("paste", e => {
+  if (!state.open || state.mode === "retirement" || /input|select|textarea/i.test(e.target.tagName)) return;
+  const t = (e.clipboardData?.getData("text") || "").trim().replace(/,/g, "").replace(/\*/g, "×").replace(/\//g, "÷").replace(/-/g, "−");
+  try { if (t) { tokenize(t); calc.operand(t); updateDisplayOnly(); } } catch {}
+});
+
+document.addEventListener("mousedown", e => {
+  if (!e.target.closest("#menu")) closeMenu();
+  if (state.open && !e.target.closest("#popover") && !e.target.closest("#statusBtn") && !e.target.closest("#menu")) setOpen(false);
+});
+window.addEventListener("resize", position);
+
+async function copy(text) {
+  try { await navigator.clipboard.writeText(text); toast(`Copied ${text}`); } catch { toast("Copy not allowed here"); }
+}
+let toastTimer;
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 1600); }
+
+function tick() { $("clock").textContent = new Date().toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
+tick(); setInterval(tick, 15000);
+
+render(); setOpen(true);
+})();
+</script>
+</body>
+</html>
